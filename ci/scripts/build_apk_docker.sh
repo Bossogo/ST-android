@@ -57,7 +57,7 @@ docker run --rm \
     unset ANDROID_SDK_HOME ANDROID_PREFS_ROOT; \
     mkdir -p "$HOME" "$NPM_CONFIG_CACHE" "$GRADLE_USER_HOME" "$ANDROID_USER_HOME"; \
     touch "$ANDROID_USER_HOME/repositories.cfg" 2>/dev/null || true; \
-    BUILD_MODE="debug"; \
+    BUILD_MODE="release"; \
     if [ -n "${RELEASE_KEYSTORE_B64:-}" ]; then \
       mkdir -p ci/keystore; \
       echo "$RELEASE_KEYSTORE_B64" | base64 -d > ci/keystore/release.jks; \
@@ -66,7 +66,8 @@ docker run --rm \
       if [ -z "${RELEASE_KEY_PASSWORD:-}" ] && [ -n "${RELEASE_STORE_PASSWORD:-}" ]; then \
         export RELEASE_KEY_PASSWORD="$RELEASE_STORE_PASSWORD"; \
       fi; \
-      BUILD_MODE="release"; \
+    else \
+      echo "No RELEASE_KEYSTORE_B64 secret — assembling release APK with the debug keystore (installable for sideload)."; \
     fi; \
     NDK_ROOT="${ANDROID_NDK_HOME:-}"; \
     if [ -z "$NDK_ROOT" ]; then \
@@ -114,30 +115,31 @@ docker run --rm \
   '
 
 APK_PATH=""
+BUILD_KIND=""
 if [ -f "${ROOT_DIR}/app/build/outputs/apk/release/app-release.apk" ]; then
   APK_PATH="${ROOT_DIR}/app/build/outputs/apk/release/app-release.apk"
+  BUILD_KIND="release"
 elif [ -f "${ROOT_DIR}/app/build/outputs/apk/debug/app-debug.apk" ]; then
   APK_PATH="${ROOT_DIR}/app/build/outputs/apk/debug/app-debug.apk"
+  BUILD_KIND="debug"
 fi
 
-if [ -n "${APK_PATH}" ] && [[ "${APK_PATH}" == */release/* ]]; then
-  VERSION_LABEL="${VERSION_NAME:-}"
-  if [ -z "${VERSION_LABEL}" ] && [ -n "${GITHUB_REF_NAME:-}" ]; then
-    VERSION_LABEL="${GITHUB_REF_NAME#refs/tags/}"
-  fi
-  VERSION_LABEL="${VERSION_LABEL#v}"
-  if [ -n "${VERSION_LABEL}" ]; then
-    mkdir -p "${ROOT_DIR}/out"
-    RELEASE_NAME="ST-android-${VERSION_LABEL}.apk"
-    cp -f "${APK_PATH}" "${ROOT_DIR}/out/${RELEASE_NAME}"
-    printf '\nAPK: %s\n' "${ROOT_DIR}/out/${RELEASE_NAME}"
-    exit 0
-  fi
-fi
-
-if [ -n "${APK_PATH}" ]; then
-  printf '\nAPK: %s\n' "${APK_PATH}"
-else
+if [ -z "${APK_PATH}" ]; then
   printf '\nAPK not found\n'
   exit 1
 fi
+
+mkdir -p "${ROOT_DIR}/out"
+VERSION_LABEL="${VERSION_NAME:-}"
+if [ -z "${VERSION_LABEL}" ] && [ -n "${GITHUB_REF_NAME:-}" ]; then
+  VERSION_LABEL="${GITHUB_REF_NAME#refs/tags/}"
+fi
+VERSION_LABEL="${VERSION_LABEL#v}"
+if [ -z "${VERSION_LABEL}" ]; then
+  VERSION_LABEL="${GITHUB_RUN_NUMBER:-local}"
+fi
+
+OUT_NAME="TavernPocket-${VERSION_LABEL}-${BUILD_KIND}.apk"
+cp -f "${APK_PATH}" "${ROOT_DIR}/out/${OUT_NAME}"
+printf '\nAPK: %s\n' "${ROOT_DIR}/out/${OUT_NAME}"
+printf 'Source: %s\n' "${APK_PATH}"

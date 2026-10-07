@@ -1,7 +1,7 @@
 <resources>
-    <string name="app_name">ST</string>
-    <string name="app_title">SillyTavern</string>
-    <string name="app_subtitle">for Android</string>
+    <string name="app_name">Tavern Pocket</string>
+    <string name="app_title">Tavern Pocket</string>
+    <string name="app_subtitle">local SillyTavern runner</string>
     <string name="app_version_label">v%1$s</string>
     <string name="auto_check_opt_in_body">We can check on app launch, no more than once per day.</string>
     <string name="auto_check_opt_in_title">Enable automatic update checks?</string>
@@ -46,7 +46,7 @@
     <string name="install">Install</string>
     <string name="install_now">Install now</string>
     <string name="later">Later</string>
-    <string name="legal_description">This app bundles SillyTavern and Node.js.</string>
+    <string name="legal_description">Tavern Pocket is a fork of Sanitised/ST-android. It bundles SillyTavern and Node.js. Not affiliated with or endorsed by SillyTavern.</string>
     <string name="legal_doc_android_license_title">AndroidX / Compose / Material / Kotlin license (Apache-2.0)</string>
     <string name="legal_doc_app_license_description">Applies to this app and SillyTavern.</string>
     <string name="legal_doc_app_license_title">App license (AGPL-3.0)</string>
@@ -57,7 +57,8 @@
     <string name="legal_licenses_title">Licenses</string>
     <string name="legal_link_node">Node.js Repository</string>
     <string name="legal_link_sillytavern">SillyTavern Repository</string>
-    <string name="legal_link_st_android">ST-android Repository</string>
+    <string name="legal_link_fork">Tavern Pocket Repository</string>
+    <string name="legal_link_st_android">Upstream ST-android Repository</string>
     <string name="legal_links_title">Links</string>
     <string name="legal_title">Legal &amp; Licenses</string>
     <string name="licenses">Licenses</string>
@@ -104,7 +105,24 @@
     <string name="notification_access_body">Allow notifications so SillyTavern server can keep running in the background. This permission is not used for anything else.</string>
     <string name="notification_access_title">Notification access needed</string>
     <string name="notification_settings">Notification Settings</string>
+    <string name="open_in_app">Open Tavern</string>
     <string name="open_in_browser">Open in Browser</string>
+    <string name="webview_menu_external_browser">Open in external browser</string>
+    <string name="webview_menu_reload">Reload</string>
+    <string name="webview_menu_close">Close</string>
+    <string name="webview_reconnecting_title">Connecting to local server…</string>
+    <string name="webview_reconnecting_body">Tavern Pocket is waiting for the local SillyTavern server. This page retries automatically.</string>
+    <string name="webview_reconnecting_retry">Retry now</string>
+    <string name="webview_download_started">Download started: %1$s</string>
+    <string name="webview_download_failed">Download failed: %1$s</string>
+    <string name="webview_file_chooser_title">Choose a file</string>
+    <string name="oem_keep_alive_title">Keep server alive on this phone</string>
+    <string name="oem_keep_alive_body">Aggressive battery savers (MagicOS / HyperOS / ColorOS and others) can kill background servers. Allow unrestricted battery use and enable Auto-launch / App launch for Tavern Pocket.</string>
+    <string name="oem_keep_alive_battery">Battery unrestricted</string>
+    <string name="oem_keep_alive_autostart">App launch / Autostart settings</string>
+    <string name="oem_keep_alive_details">App details</string>
+    <string name="oem_keep_alive_open_guide">Background survival guide</string>
+    <string name="oem_autostart_unavailable">No OEM autostart screen was found. Open App details and look for App launch / Autostart / Battery.</string>
     <string name="percent_value">%1$d%%</string>
     <string name="remove">Remove</string>
     <string name="reset">Reset</string>
@@ -112,8 +130,8 @@
     <string name="saving">Saving...</string>
     <string name="settings_auto_check_subtitle">Checks on app startup, no more than once per day.</string>
     <string name="settings_auto_check_title">Automatically Check for Updates</string>
-    <string name="settings_auto_open_subtitle">When the server is ready, open SillyTavern in your browser for you.</string>
-    <string name="settings_auto_open_title">Open Browser Automatically</string>
+    <string name="settings_auto_open_subtitle">When the server is ready, open the in-app WebView for you.</string>
+    <string name="settings_auto_open_title">Open UI Automatically</string>
     <string name="settings_theme_title">Theme</string>
     <string name="settings_theme_auto_label">Automatic</string>
     <string name="settings_theme_light_label">Light</string>
@@ -214,9 +232,10 @@
     <string name="update_check_failed">Update check failed. Please try again.</string>
 
     <!-- Notification -->
-    <string name="notification_title">SillyTavern Node</string>
+    <string name="notification_title">Tavern Pocket server</string>
     <string name="notification_stop_action">Stop</string>
-    <string name="notification_channel_name">Node service</string>
+    <string name="notification_channel_name">Local server</string>
+    <string name="notification_watchdog_restart">Server stopped unexpectedly — restarting…</string>
 
     <!-- Node service status messages -->
     <string name="node_status_idle">Idle</string>

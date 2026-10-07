@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0-pocket.1 (Tavern Pocket milestone 1)
+
+Fork of [Sanitised/ST-android](https://github.com/Sanitised/ST-android) v0.5.0 for side-by-side install and Honor/MagicOS usability.
+
+- Rebranded to **Tavern Pocket** (`com.bossogo.tavernpocket`) so it installs alongside upstream ST.
+- Bundled SillyTavern bumped to **1.19.0**.
+- In-app full-screen WebView shell (edge-to-edge, history back, file chooser, downloads, localhost-only cleartext, external links in the system browser, reconnect page). External browser remains as a fallback.
+- Keep-alive: partial wake lock, START_STICKY + watchdog health restart, clear Stop in the notification and UI, OEM battery / app-launch guide (Honor/Huawei deep links with graceful fallback).
+- Cleans half-installed extension folders after a failed install (upstream issues #12, #13, #20). Full extension updates remain out of scope.
+- GitHub Actions builds an installable APK artifact without requiring upstream signing secrets.
+
 ## 0.5.0
 
 - New feature to edit SillyTavern data folder with external file managers. Disabled by default.

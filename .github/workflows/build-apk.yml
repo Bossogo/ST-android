@@ -2,8 +2,14 @@ name: Build APK
 
 on:
   push:
+    branches:
+      - master
+      - 'cursor/**'
     tags:
       - 'v*'
+  pull_request:
+    branches:
+      - master
   workflow_dispatch:
 
 jobs:
@@ -27,30 +33,40 @@ jobs:
       - name: Build APK (Docker)
         run: bash ci/scripts/build_apk_docker.sh
         env:
+          # Optional: if present, a release-signed APK is produced. Otherwise the
+          # build falls back to a debug-signed / generated-debug-keystore APK so
+          # this fork can produce installable artifacts without upstream secrets.
           RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
 
+      - name: Stage APK for upload
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          if compgen -G "out/*.apk" > /dev/null; then
+            echo "APK already staged under out/"
+            ls -lh out/*.apk
+            exit 0
+          fi
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp -f app/build/outputs/apk/release/app-release.apk "out/TavernPocket-${GITHUB_RUN_NUMBER}-release.apk"
+          elif [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            cp -f app/build/outputs/apk/debug/app-debug.apk "out/TavernPocket-${GITHUB_RUN_NUMBER}-debug.apk"
+          else
+            echo "No APK found under app/build/outputs/apk"
+            find app/build/outputs -type f -name '*.apk' -print || true
+            exit 1
+          fi
+          ls -lh out/*.apk
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
+          name: tavern-pocket-apk
           path: out/*.apk
+          if-no-files-found: error
 
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        id: release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: out/*.apk
-          name: ST-android ${{ github.ref_name }}
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          draft: ${{ contains(github.ref_name, '-') }}
-
-      - name: Publish pre-release after asset upload
-        if: startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, '-')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release edit "${GITHUB_REF_NAME}" --draft=false --prerelease
+      # Tag-driven GitHub Releases are intentionally disabled in this fork workflow.
+      # Download installable APKs from the workflow artifact above.

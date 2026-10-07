@@ -67,6 +67,7 @@ private sealed interface AppScreen {
     object Legal : AppScreen
     object Settings : AppScreen
     object ManageSt : AppScreen
+    object OemGuide : AppScreen
     data class License(val doc: LegalDoc) : AppScreen
 }
 
@@ -97,6 +98,7 @@ private fun appScreenStateSaver(legalDocs: List<LegalDoc>): Saver<AppScreen, Str
                 AppScreen.Legal -> "legal"
                 AppScreen.Settings -> "settings"
                 AppScreen.ManageSt -> "manage-st"
+                AppScreen.OemGuide -> "oem-guide"
                 is AppScreen.License -> "license:${screen.doc.assetPath}"
             }
         },
@@ -108,6 +110,7 @@ private fun appScreenStateSaver(legalDocs: List<LegalDoc>): Saver<AppScreen, Str
                 key == "legal" -> AppScreen.Legal
                 key == "settings" -> AppScreen.Settings
                 key == "manage-st" -> AppScreen.ManageSt
+                key == "oem-guide" -> AppScreen.OemGuide
                 key.startsWith("license:") -> {
                     val assetPath = key.removePrefix("license:")
                     val doc = legalDocs.firstOrNull { it.assetPath == assetPath }
@@ -392,6 +395,23 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    AppScreen.OemGuide -> {
+                        BackHandler { currentScreen.value = AppScreen.Home }
+                        OemKeepAliveGuideScreen(
+                            onBack = { currentScreen.value = AppScreen.Home },
+                            isBatteryUnrestricted = batteryUnrestrictedState.value,
+                            onOpenBatterySettings = { openBatteryOptimizationSettings() },
+                            onOpenAutostartSettings = {
+                                if (!OemKeepAlive.openAutostartSettings(this@MainActivity)) {
+                                    viewModel.showTransientMessage(
+                                        getString(R.string.oem_autostart_unavailable)
+                                    )
+                                }
+                            },
+                            onOpenAppDetails = { OemKeepAlive.openAppDetails(this@MainActivity) }
+                        )
+                    }
+
                     AppScreen.Settings -> {
                         BackHandler { currentScreen.value = AppScreen.Home }
                         SettingsScreen(
@@ -404,6 +424,7 @@ class MainActivity : ComponentActivity() {
                             onThemeModeChanged = { mode -> viewModel.setThemeMode(mode) },
                             isBatteryUnrestricted = batteryUnrestrictedState.value,
                             onOpenBatterySettings = { openBatteryOptimizationSettings() },
+                            onOpenOemGuide = { currentScreen.value = AppScreen.OemGuide },
                             channel = viewModel.updateChannel.value,
                             onChannelChanged = { channel -> viewModel.setUpdateChannel(channel) },
                             onCheckNow = { viewModel.checkForUpdates("manual") },
@@ -492,12 +513,14 @@ class MainActivity : ComponentActivity() {
                             onStart = { startNode() },
                             onStop = { stopNode() },
                             onOpen = { openNodeUi(statusState.value.port) },
+                            onOpenExternalBrowser = { openNodeUiExternal(statusState.value.port) },
                             autoOpenBrowserWhenReady = viewModel.autoOpenBrowserWhenReady.value,
                             autoOpenBrowserTriggeredForCurrentRun = autoOpenBrowserTriggeredForCurrentRun.value,
                             onAutoOpenBrowserTriggered = { autoOpenBrowserTriggeredForCurrentRun.value = true },
                             onShowLogs = { currentScreen.value = AppScreen.Logs },
                             onOpenNotificationSettings = { openNotificationSettings() },
                             onOpenBatterySettings = { openBatteryOptimizationSettings() },
+                            onOpenOemGuide = { currentScreen.value = AppScreen.OemGuide },
                             onEditConfig = { currentScreen.value = AppScreen.Config },
                             showNotificationPrompt = !notificationGrantedState.value,
                             showBatteryPrompt = showBatteryPrompt,
@@ -666,6 +689,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openNodeUi(port: Int) {
+        startActivity(TavernWebActivity.createIntent(this, port))
+    }
+
+    private fun openNodeUiExternal(port: Int) {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("http://127.0.0.1:$port/"))
         startActivity(intent)
     }
@@ -693,30 +720,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openBatteryOptimizationSettings() {
-        val packageUri = Uri.fromParts("package", packageName, null)
-        val powerManager = getSystemService(PowerManager::class.java)
-        val isIgnoringOptimizations = powerManager?.isIgnoringBatteryOptimizations(packageName) == true
-        val intentCandidates = listOf(
-            Intent("android.settings.APP_BATTERY_SETTINGS").apply {
-                data = packageUri
-                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-                putExtra("android.intent.extra.PACKAGE_NAME", packageName)
-                putExtra("package_name", packageName)
-            },
-            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, packageUri)
-                .takeUnless { isIgnoringOptimizations },
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri),
-            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
-            Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS),
-            Intent(Settings.ACTION_SETTINGS)
-        ).filterNotNull()
-
-        val intent = intentCandidates.firstOrNull { candidate ->
-            candidate.resolveActivity(packageManager) != null
-        } ?: Intent(Settings.ACTION_SETTINGS)
-
-        runCatching { startActivity(intent) }
-            .onFailure { runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) } }
+        OemKeepAlive.openBatteryUnrestrictedSettings(this)
     }
 
     private fun openConfigDocs() {

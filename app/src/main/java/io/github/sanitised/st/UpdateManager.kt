@@ -52,7 +52,7 @@ internal class UpdateManager(
         private const val PREF_AUTO_OPTIN_PROMPT_SHOWN = "auto_optin_prompt_shown"
         private const val PREF_LAST_AUTO_CHECK_MS = "last_auto_check_ms"
         private const val PREF_UPDATE_DISMISSED_UNTIL_MS = "update_dismissed_until_ms"
-        private const val GITHUB_OWNER = "Sanitised"
+        private const val GITHUB_OWNER = "Bossogo"
         private const val GITHUB_REPO = "ST-android"
         private const val DOWNLOAD_BUFFER_SIZE = 16 * 1024
         private const val UNKNOWN_LENGTH_PROGRESS_STEP_BYTES = 512L * 1024L
