@@ -41,6 +41,9 @@ fi
 if [ -n "${GITHUB_RUN_NUMBER:-}" ]; then
   DOCKER_ENV_ARGS+=(-e "GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER}")
 fi
+if [ -n "${SKIP_NODE_BUILD:-}" ]; then
+  DOCKER_ENV_ARGS+=(-e "SKIP_NODE_BUILD=${SKIP_NODE_BUILD}")
+fi
 
 docker run --rm \
   -u "$(id -u):$(id -g)" \
@@ -99,10 +102,27 @@ docker run --rm \
       exit 1; \
     fi; \
     python3 ci/scripts/check_elf_align.py "$TOOLCHAIN/bin/llvm-readelf" "$LIBCXX_PATH"; \
-    ./tools/node/scripts/build_node_android.sh arm64; \
-    mkdir -p app/src/main/jniLibs/arm64-v8a; \
-    cp out/android/arm64/node app/src/main/jniLibs/arm64-v8a/libnode.so; \
-    cp "$LIBCXX_PATH" app/src/main/jniLibs/arm64-v8a/libc++_shared.so; \
+    mkdir -p out/android/arm64 app/src/main/jniLibs/arm64-v8a; \
+    CACHED_NODE="/workspace/out/android/arm64/node"; \
+    CACHED_LIBCXX="/workspace/out/android/arm64/libc++_shared.so"; \
+    if [ "${SKIP_NODE_BUILD:-0}" = "1" ] && [ -f "$CACHED_NODE" ] && [ -s "$CACHED_NODE" ]; then \
+      echo "SKIP_NODE_BUILD=1 and cached node present — skipping Node cross-compile"; \
+      cp -f "$CACHED_NODE" app/src/main/jniLibs/arm64-v8a/libnode.so; \
+      if [ -f "$CACHED_LIBCXX" ]; then \
+        cp -f "$CACHED_LIBCXX" app/src/main/jniLibs/arm64-v8a/libc++_shared.so; \
+      else \
+        cp -f "$LIBCXX_PATH" app/src/main/jniLibs/arm64-v8a/libc++_shared.so; \
+        cp -f "$LIBCXX_PATH" "$CACHED_LIBCXX"; \
+      fi; \
+    else \
+      if [ "${SKIP_NODE_BUILD:-0}" = "1" ]; then \
+        echo "SKIP_NODE_BUILD=1 but cached node missing — building Node"; \
+      fi; \
+      ./tools/node/scripts/build_node_android.sh arm64; \
+      cp -f out/android/arm64/node app/src/main/jniLibs/arm64-v8a/libnode.so; \
+      cp -f "$LIBCXX_PATH" app/src/main/jniLibs/arm64-v8a/libc++_shared.so; \
+      cp -f "$LIBCXX_PATH" out/android/arm64/libc++_shared.so; \
+    fi; \
     python3 ci/scripts/check_elf_align.py "$TOOLCHAIN/bin/llvm-readelf" \
       app/src/main/jniLibs/arm64-v8a/libnode.so \
       app/src/main/jniLibs/arm64-v8a/libc++_shared.so; \

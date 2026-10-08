@@ -1,16 +1,22 @@
 name: Build APK
 
 on:
+  # Avoid push+pull_request double builds on the same PR head:
+  # - Feature branches build via pull_request only
+  # - master / tags / manual dispatch still build via push/workflow_dispatch
   push:
     branches:
       - master
-      - 'cursor/**'
     tags:
       - 'v*'
   pull_request:
     branches:
       - master
   workflow_dispatch:
+
+concurrency:
+  group: build-apk-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -24,6 +30,37 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Compute Node cache key inputs
+        id: node_cache
+        run: |
+          set -euo pipefail
+          node_sha="$(git rev-parse HEAD:node)"
+          patches_hash="$(
+            {
+              printf 'api=%s\n' '26'
+              printf 'arch=%s\n' 'arm64'
+              cat tools/node/scripts/build_node_android.sh
+              cat tools/node/scripts/apply_node_patches.sh
+              find tools/patches -type f -name '*.patch' -print0 | sort -z | xargs -0 cat
+              # Dockerfile pins host Node/NDK image used for the cross-compile environment.
+              cat ci/docker/Dockerfile
+            } | sha256sum | awk '{print $1}'
+          )"
+          echo "node_sha=${node_sha}" >> "$GITHUB_OUTPUT"
+          echo "patches_hash=${patches_hash}" >> "$GITHUB_OUTPUT"
+          echo "cache_key=libnode-arm64-${node_sha}-${patches_hash}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached libnode
+        id: cache_node
+        uses: actions/cache@v4
+        with:
+          path: |
+            out/android/arm64/node
+            out/android/arm64/libc++_shared.so
+          key: ${{ steps.node_cache.outputs.cache_key }}
+          restore-keys: |
+            libnode-arm64-${{ steps.node_cache.outputs.node_sha }}-
+
       - name: Set release version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
@@ -33,6 +70,9 @@ jobs:
       - name: Build APK (Docker)
         run: bash ci/scripts/build_apk_docker.sh
         env:
+          # When a cache hit restores out/android/arm64/node, the Docker build skips the
+          # ~2.5h Node cross-compile and reuses that binary.
+          SKIP_NODE_BUILD: ${{ steps.cache_node.outputs.cache-hit == 'true' && '1' || '0' }}
           # Optional: if present, a release-signed APK is produced. Otherwise the
           # build falls back to a debug-signed / generated-debug-keystore APK so
           # this fork can produce installable artifacts without upstream secrets.
@@ -40,6 +80,16 @@ jobs:
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
+      - name: Persist libc++ next to cached node
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p out/android/arm64
+          if [ -f app/src/main/jniLibs/arm64-v8a/libc++_shared.so ]; then
+            cp -f app/src/main/jniLibs/arm64-v8a/libc++_shared.so out/android/arm64/libc++_shared.so
+          fi
+          ls -lh out/android/arm64/ || true
 
       - name: Stage APK for upload
         run: |
