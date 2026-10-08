@@ -130,14 +130,19 @@ if [ -z "${APK_PATH}" ]; then
 fi
 
 mkdir -p "${ROOT_DIR}/out"
+# Prefer an explicit VERSION_NAME, then a git tag name, else the Actions run number.
+# Never use branch/PR ref names here — they contain '/' (e.g. cursor/... or 1/merge)
+# and break the staged APK path.
 VERSION_LABEL="${VERSION_NAME:-}"
-if [ -z "${VERSION_LABEL}" ] && [ -n "${GITHUB_REF_NAME:-}" ]; then
-  VERSION_LABEL="${GITHUB_REF_NAME#refs/tags/}"
+if [ -z "${VERSION_LABEL}" ] && [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ -n "${GITHUB_REF_NAME:-}" ]; then
+  VERSION_LABEL="${GITHUB_REF_NAME}"
 fi
 VERSION_LABEL="${VERSION_LABEL#v}"
 if [ -z "${VERSION_LABEL}" ]; then
   VERSION_LABEL="${GITHUB_RUN_NUMBER:-local}"
 fi
+# Final filesystem-safe sanitization for any remaining odd characters.
+VERSION_LABEL="$(printf '%s' "${VERSION_LABEL}" | tr -c 'A-Za-z0-9._-' '_')"
 
 OUT_NAME="TavernPocket-${VERSION_LABEL}-${BUILD_KIND}.apk"
 cp -f "${APK_PATH}" "${ROOT_DIR}/out/${OUT_NAME}"
