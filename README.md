@@ -1,13 +1,16 @@
-# ST-android
+# Tavern Pocket
 
-SillyTavern runner for Android. Works on device with zero setup. Supports Android 8.0+ and arm64.
+Local [SillyTavern](https://github.com/SillyTavern/SillyTavern) runner for Android (arm64, Android 8.0+), based on [Sanitised/ST-android](https://github.com/Sanitised/ST-android).
 
-<img src="pics/ST-android-app-icon-original.svg" alt="App icon" width="120">
+This fork is **not affiliated with or endorsed by** SillyTavern or the upstream ST-android project. It is intended for basic on-device chatting. Extensions are only partially supported.
 
-<img src="pics/ST-android-screenshot.png" alt="Screenshot" width="300">
+## Credits
 
-This is a personal project and is not affiliated with or endorsed by SillyTavern.
-It is intended primarily for basic on-device chatting. Extensions are not properly supported yet.
+- Upstream Android shell: [Sanitised/ST-android](https://github.com/Sanitised/ST-android) (AGPL-3.0)
+- Bundled chat UI/server: [SillyTavern/SillyTavern](https://github.com/SillyTavern/SillyTavern) (AGPL-3.0), currently the `1.19.0` release
+- Bundled runtime: [Node.js](https://github.com/nodejs/node) with Termux-derived Android patches
+
+All original copyright notices, license texts, and legal assets from those projects are retained.
 
 ## Privacy
 
@@ -15,23 +18,22 @@ It is intended primarily for basic on-device chatting. Extensions are not proper
 - Unlike Termux, the app works in Private Space/Secure Folder/Secondary profiles.
 - Minimal network calls: opt-in GitHub release checks, npm installs, and GitHub downloads for custom ST versions. All other traffic comes from SillyTavern itself.
 - All chats, characters, settings stay local unless you decide to export them manually and share with others.
-- Bundles SillyTavern source code without modifications.
-- Bundles Node.js with minimal patches required to run on Android.
-- Release APKs are built in the pipeline and published automatically through immutable releases.
+- Bundles SillyTavern with a small install-time cleanup patch for half-installed extension folders (see below); Node.js includes the minimal Android patches from upstream ST-android.
 
-## Features
+## Features (this fork — milestone 1)
 
-- Runs SillyTavern in one click
-- Properly asks and checks for permissions
-- Has an import/export system; supports the app's own archive format and archives produced by the SillyTavern UI
-- Easily change SillyTavern: any version, branch, repo, or install from a ZIP archive. Not guaranteed to be compatible with something very exotic/outdated.
-- Dark/light mode support
-- Automatically opens the browser
-- Optional access to the SillyTavern data folder through external file managers.
+- Rebranded so it can install **alongside** upstream ST-android (`com.bossogo.tavernpocket`)
+- Bundled SillyTavern **1.19.0**
+- In-app full-screen WebView shell (edge-to-edge, back history, file chooser, downloads, localhost cleartext only, external links in the system browser, reconnect page). External browser remains available as a fallback.
+- Keep-alive helpers for aggressive OEMs (partial wake lock, START_STICKY + watchdog restart, clear Stop action, MagicOS/Honor app-launch deep links)
+- Cleans incomplete extension folders after a failed install so reinstall works
 
-## Installation
+## Installation (Honor / MagicOS)
 
-Download the APK from [Releases](https://github.com/Sanitised/ST-android/releases/latest) (allow installs from your browser/files app if Android asks).
+1. Open the GitHub Actions run for your branch/PR and download the **`tavern-pocket-apk`** artifact (or build locally — see below).
+2. On the phone: **Settings → Security → More settings → Install apps from external sources** (wording varies on MagicOS) and allow your Files / browser app.
+3. Open the APK and install. It will not replace upstream ST-android if that is already installed.
+4. After first start, open **Background survival guide** (or Settings) and set battery to unrestricted + enable Auto-launch / App launch for Tavern Pocket.
 
 ## Transferring data from SillyTavern on Termux/PC
 
@@ -51,7 +53,7 @@ This method is the easiest, and will import all your chats, characters, and othe
 
 ### Quick full backup for data transfer (Termux or Linux)
 
-Run this one-liner:
+Run this one-liner against the upstream export helper:
 
 ```bash
 bash <(curl -sSf https://raw.githubusercontent.com/Sanitised/ST-android/master/tools/export_to_st_android.sh)
@@ -95,13 +97,18 @@ See [CHANGELOG.md](CHANGELOG.md).
 Prereqs: Docker installed (plus Git for cloning the repo). Tested only on Linux.
 
 ```bash
-git clone https://github.com/Sanitised/ST-android
+git clone https://github.com/Bossogo/ST-android
 cd ST-android
 git submodule update --init --recursive
 ./ci/scripts/build_apk_docker.sh
 ```
 
-The first build takes around 2 to 3 hours, compiling Node from scratch. Subsequent builds are a lot faster.
+The first build takes a long time while compiling Node from scratch. Subsequent builds are much faster.
 
 Output:
-- `app/build/outputs/apk/debug/app-debug.apk`
+- `out/TavernPocket-*-debug.apk` (or `-release.apk` when signing secrets are provided)
+- Also under `app/build/outputs/apk/...`
+
+## License
+
+AGPL-3.0. See [LICENSE.txt](LICENSE.txt) and the in-app Legal screen.

@@ -45,12 +45,14 @@ fun STAndroidApp(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onOpen: () -> Unit,
+    onOpenExternalBrowser: () -> Unit,
     autoOpenBrowserWhenReady: Boolean,
     autoOpenBrowserTriggeredForCurrentRun: Boolean,
     onAutoOpenBrowserTriggered: () -> Unit,
     onShowLogs: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     onOpenBatterySettings: () -> Unit,
+    onOpenOemGuide: () -> Unit,
     onEditConfig: () -> Unit,
     showNotificationPrompt: Boolean,
     showBatteryPrompt: Boolean,
@@ -243,6 +245,13 @@ fun STAndroidApp(
                             onSet = onOpenBatterySettings,
                             onDismiss = onDismissBatteryPrompt
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = onOpenOemGuide,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(text = stringResource(R.string.oem_keep_alive_open_guide))
+                        }
                     }
                     if (showUpdatePrompt) {
                         Spacer(modifier = Modifier.height(16.dp))
@@ -320,9 +329,17 @@ fun STAndroidApp(
                         text = if (status.state == NodeState.RUNNING && !readyState.value) {
                             stringResource(R.string.waiting_for_server)
                         } else {
-                            stringResource(R.string.open_in_browser)
+                            stringResource(R.string.open_in_app)
                         }
                     )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onOpenExternalBrowser,
+                    enabled = canOpen,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = stringResource(R.string.open_in_browser))
                 }
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -350,17 +367,19 @@ private fun STAndroidAppPreview() {
         onStart = {},
         onStop = {},
         onOpen = {},
+        onOpenExternalBrowser = {},
         autoOpenBrowserWhenReady = false,
         autoOpenBrowserTriggeredForCurrentRun = false,
         onAutoOpenBrowserTriggered = {},
         onShowLogs = {},
         onOpenNotificationSettings = {},
         onOpenBatterySettings = {},
+        onOpenOemGuide = {},
         onEditConfig = {},
         showNotificationPrompt = false,
         showBatteryPrompt = false,
         versionLabel = "0.5.0-dev",
-        stLabel = "SillyTavern 1.18.0",
+        stLabel = "SillyTavern 1.19.0",
         nodeLabel = "Node v24.18.0",
         symlinkSupported = true,
         onShowLegal = {},

@@ -41,6 +41,9 @@ fi
 if [ -n "${GITHUB_RUN_NUMBER:-}" ]; then
   DOCKER_ENV_ARGS+=(-e "GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER}")
 fi
+if [ -n "${SKIP_NODE_BUILD:-}" ]; then
+  DOCKER_ENV_ARGS+=(-e "SKIP_NODE_BUILD=${SKIP_NODE_BUILD}")
+fi
 
 docker run --rm \
   -u "$(id -u):$(id -g)" \
@@ -57,7 +60,7 @@ docker run --rm \
     unset ANDROID_SDK_HOME ANDROID_PREFS_ROOT; \
     mkdir -p "$HOME" "$NPM_CONFIG_CACHE" "$GRADLE_USER_HOME" "$ANDROID_USER_HOME"; \
     touch "$ANDROID_USER_HOME/repositories.cfg" 2>/dev/null || true; \
-    BUILD_MODE="debug"; \
+    BUILD_MODE="release"; \
     if [ -n "${RELEASE_KEYSTORE_B64:-}" ]; then \
       mkdir -p ci/keystore; \
       echo "$RELEASE_KEYSTORE_B64" | base64 -d > ci/keystore/release.jks; \
@@ -66,7 +69,8 @@ docker run --rm \
       if [ -z "${RELEASE_KEY_PASSWORD:-}" ] && [ -n "${RELEASE_STORE_PASSWORD:-}" ]; then \
         export RELEASE_KEY_PASSWORD="$RELEASE_STORE_PASSWORD"; \
       fi; \
-      BUILD_MODE="release"; \
+    else \
+      echo "No RELEASE_KEYSTORE_B64 secret — assembling release APK with the debug keystore (installable for sideload)."; \
     fi; \
     NDK_ROOT="${ANDROID_NDK_HOME:-}"; \
     if [ -z "$NDK_ROOT" ]; then \
@@ -98,10 +102,27 @@ docker run --rm \
       exit 1; \
     fi; \
     python3 ci/scripts/check_elf_align.py "$TOOLCHAIN/bin/llvm-readelf" "$LIBCXX_PATH"; \
-    ./tools/node/scripts/build_node_android.sh arm64; \
-    mkdir -p app/src/main/jniLibs/arm64-v8a; \
-    cp out/android/arm64/node app/src/main/jniLibs/arm64-v8a/libnode.so; \
-    cp "$LIBCXX_PATH" app/src/main/jniLibs/arm64-v8a/libc++_shared.so; \
+    mkdir -p out/android/arm64 app/src/main/jniLibs/arm64-v8a; \
+    CACHED_NODE="/workspace/out/android/arm64/node"; \
+    CACHED_LIBCXX="/workspace/out/android/arm64/libc++_shared.so"; \
+    if [ "${SKIP_NODE_BUILD:-0}" = "1" ] && [ -f "$CACHED_NODE" ] && [ -s "$CACHED_NODE" ]; then \
+      echo "SKIP_NODE_BUILD=1 and cached node present — skipping Node cross-compile"; \
+      cp -f "$CACHED_NODE" app/src/main/jniLibs/arm64-v8a/libnode.so; \
+      if [ -f "$CACHED_LIBCXX" ]; then \
+        cp -f "$CACHED_LIBCXX" app/src/main/jniLibs/arm64-v8a/libc++_shared.so; \
+      else \
+        cp -f "$LIBCXX_PATH" app/src/main/jniLibs/arm64-v8a/libc++_shared.so; \
+        cp -f "$LIBCXX_PATH" "$CACHED_LIBCXX"; \
+      fi; \
+    else \
+      if [ "${SKIP_NODE_BUILD:-0}" = "1" ]; then \
+        echo "SKIP_NODE_BUILD=1 but cached node missing — building Node"; \
+      fi; \
+      ./tools/node/scripts/build_node_android.sh arm64; \
+      cp -f out/android/arm64/node app/src/main/jniLibs/arm64-v8a/libnode.so; \
+      cp -f "$LIBCXX_PATH" app/src/main/jniLibs/arm64-v8a/libc++_shared.so; \
+      cp -f "$LIBCXX_PATH" out/android/arm64/libc++_shared.so; \
+    fi; \
     python3 ci/scripts/check_elf_align.py "$TOOLCHAIN/bin/llvm-readelf" \
       app/src/main/jniLibs/arm64-v8a/libnode.so \
       app/src/main/jniLibs/arm64-v8a/libc++_shared.so; \
@@ -114,30 +135,36 @@ docker run --rm \
   '
 
 APK_PATH=""
+BUILD_KIND=""
 if [ -f "${ROOT_DIR}/app/build/outputs/apk/release/app-release.apk" ]; then
   APK_PATH="${ROOT_DIR}/app/build/outputs/apk/release/app-release.apk"
+  BUILD_KIND="release"
 elif [ -f "${ROOT_DIR}/app/build/outputs/apk/debug/app-debug.apk" ]; then
   APK_PATH="${ROOT_DIR}/app/build/outputs/apk/debug/app-debug.apk"
+  BUILD_KIND="debug"
 fi
 
-if [ -n "${APK_PATH}" ] && [[ "${APK_PATH}" == */release/* ]]; then
-  VERSION_LABEL="${VERSION_NAME:-}"
-  if [ -z "${VERSION_LABEL}" ] && [ -n "${GITHUB_REF_NAME:-}" ]; then
-    VERSION_LABEL="${GITHUB_REF_NAME#refs/tags/}"
-  fi
-  VERSION_LABEL="${VERSION_LABEL#v}"
-  if [ -n "${VERSION_LABEL}" ]; then
-    mkdir -p "${ROOT_DIR}/out"
-    RELEASE_NAME="ST-android-${VERSION_LABEL}.apk"
-    cp -f "${APK_PATH}" "${ROOT_DIR}/out/${RELEASE_NAME}"
-    printf '\nAPK: %s\n' "${ROOT_DIR}/out/${RELEASE_NAME}"
-    exit 0
-  fi
-fi
-
-if [ -n "${APK_PATH}" ]; then
-  printf '\nAPK: %s\n' "${APK_PATH}"
-else
+if [ -z "${APK_PATH}" ]; then
   printf '\nAPK not found\n'
   exit 1
 fi
+
+mkdir -p "${ROOT_DIR}/out"
+# Prefer an explicit VERSION_NAME, then a git tag name, else the Actions run number.
+# Never use branch/PR ref names here — they contain '/' (e.g. cursor/... or 1/merge)
+# and break the staged APK path.
+VERSION_LABEL="${VERSION_NAME:-}"
+if [ -z "${VERSION_LABEL}" ] && [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ -n "${GITHUB_REF_NAME:-}" ]; then
+  VERSION_LABEL="${GITHUB_REF_NAME}"
+fi
+VERSION_LABEL="${VERSION_LABEL#v}"
+if [ -z "${VERSION_LABEL}" ]; then
+  VERSION_LABEL="${GITHUB_RUN_NUMBER:-local}"
+fi
+# Final filesystem-safe sanitization for any remaining odd characters.
+VERSION_LABEL="$(printf '%s' "${VERSION_LABEL}" | tr -c 'A-Za-z0-9._-' '_')"
+
+OUT_NAME="TavernPocket-${VERSION_LABEL}-${BUILD_KIND}.apk"
+cp -f "${APK_PATH}" "${ROOT_DIR}/out/${OUT_NAME}"
+printf '\nAPK: %s\n' "${ROOT_DIR}/out/${OUT_NAME}"
+printf 'Source: %s\n' "${APK_PATH}"

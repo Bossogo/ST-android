@@ -5,18 +5,26 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import java.io.File
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class NodeService : Service() {
@@ -27,6 +35,12 @@ class NodeService : Service() {
         private const val CHANNEL_ID = "node_service_v2"
         private const val NOTIFICATION_ID = 1001
         private const val MAX_LOG_BYTES = 10L * 1024L * 1024L
+        private const val PREFS_NAME = "node_service"
+        private const val PREF_WANT_RUNNING = "want_running"
+        private const val PREF_PORT = "port"
+        private const val WATCHDOG_INTERVAL_MS = 15_000L
+        private const val RESTART_DELAY_MS = 2_000L
+        private const val HEALTH_FAIL_THRESHOLD = 3
     }
 
     inner class LocalBinder : Binder() {
@@ -37,17 +51,26 @@ class NodeService : Service() {
     private val listeners = CopyOnWriteArraySet<NodeStatusListener>()
     private val payload = NodePayload(this)
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val prefs by lazy { getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 
     @Volatile
     private var process: Process? = null
     private var status: NodeStatus = NodeStatus(NodeState.STOPPED, "")
     @Volatile
     private var stopRequested = false
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var watchdogJob: Job? = null
+    private var restartJob: Job? = null
+    private val restartScheduled = AtomicBoolean(false)
+    private var consecutiveHealthFailures = 0
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        status = status.copy(message = getString(R.string.node_status_idle))
+        status = status.copy(
+            message = getString(R.string.node_status_idle),
+            port = prefs.getInt(PREF_PORT, DEFAULT_PORT)
+        )
         notifyStatus(status)
     }
 
@@ -56,20 +79,44 @@ class NodeService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        stopWatchdog()
+        releaseWakeLock()
         serviceScope.cancel()
+        super.onDestroy()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
                 val port = intent.getIntExtra(EXTRA_PORT, status.port)
-                setPort(port)
+                setWantRunning(true, port)
                 if (ensureForeground(getString(R.string.node_status_starting))) {
                     startNodeAsync()
                 }
             }
-            ACTION_STOP -> stopNode()
+            ACTION_STOP -> {
+                setWantRunning(false, status.port)
+                stopNode()
+            }
+            null -> {
+                // START_STICKY restart after process death
+                if (prefs.getBoolean(PREF_WANT_RUNNING, false)) {
+                    val port = prefs.getInt(PREF_PORT, status.port)
+                    setPort(port)
+                    if (ensureForeground(getString(R.string.node_status_starting))) {
+                        startNodeAsync()
+                    }
+                } else {
+                    stopSelf()
+                }
+            }
+            else -> {
+                if (prefs.getBoolean(PREF_WANT_RUNNING, false) && process == null) {
+                    if (ensureForeground(getString(R.string.node_status_starting))) {
+                        startNodeAsync()
+                    }
+                }
+            }
         }
         return START_STICKY
     }
@@ -83,7 +130,18 @@ class NodeService : Service() {
         listeners.remove(listener)
     }
 
+    private fun setWantRunning(want: Boolean, port: Int) {
+        val safePort = if (port in 1..65535) port else DEFAULT_PORT
+        prefs.edit()
+            .putBoolean(PREF_WANT_RUNNING, want)
+            .putInt(PREF_PORT, safePort)
+            .apply()
+        setPort(safePort)
+    }
+
     private fun startNodeAsync() {
+        restartJob?.cancel()
+        restartScheduled.set(false)
         val shouldStart = synchronized(this) {
             if (process != null) return@synchronized false
             if (status.state == NodeState.STARTING || status.state == NodeState.STOPPING) return@synchronized false
@@ -96,6 +154,7 @@ class NodeService : Service() {
         }
         if (!shouldStart) return
         notifyStatus(status)
+        acquireWakeLock()
         serviceScope.launch { startNodeInternal() }
     }
 
@@ -112,22 +171,26 @@ class NodeService : Service() {
                     NodeState.ERROR,
                     layoutResult.exceptionOrNull()?.message ?: getString(R.string.node_status_extraction_failed)
                 )
+                releaseWakeLock()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 return
             }
             layoutResult.getOrThrow()
         } catch (e: Exception) {
             updateStatus(NodeState.ERROR, e.message ?: getString(R.string.node_status_extraction_failed))
+            releaseWakeLock()
             stopForeground(STOP_FOREGROUND_REMOVE)
             return
         }
         if (!layout.nodeBin.exists()) {
             updateStatus(NodeState.ERROR, getString(R.string.node_status_binary_not_found))
+            releaseWakeLock()
             stopForeground(STOP_FOREGROUND_REMOVE)
             return
         }
         if (stopRequested) {
             updateStatus(NodeState.STOPPED, getString(R.string.node_status_stopped))
+            releaseWakeLock()
             stopForeground(STOP_FOREGROUND_REMOVE)
             return
         }
@@ -172,11 +235,15 @@ class NodeService : Service() {
             process = startedProcess
 
             updateStatus(NodeState.RUNNING, getString(R.string.node_status_running))
+            consecutiveHealthFailures = 0
+            startWatchdog()
             waitForExitAsync(startedProcess)
         } catch (e: Exception) {
             appendServiceLog(layout.logsDir, "start failed: ${e.message ?: "unknown error"}")
             updateStatus(NodeState.ERROR, e.message ?: getString(R.string.node_status_start_failed))
+            releaseWakeLock()
             stopForeground(STOP_FOREGROUND_REMOVE)
+            maybeScheduleRestart("start-failed")
         }
     }
 
@@ -227,12 +294,28 @@ class NodeService : Service() {
     }
 
     private fun stopNodeInternal() {
+        stopWatchdog()
+        restartJob?.cancel()
+        restartScheduled.set(false)
         val proc = synchronized(this) {
-            if (status.state == NodeState.STOPPED || status.state == NodeState.STOPPING) return
+            if (status.state == NodeState.STOPPED || status.state == NodeState.STOPPING) {
+                releaseWakeLock()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return
+            }
             stopRequested = true
             val current = process
             updateStatus(NodeState.STOPPING, getString(R.string.node_status_stopping))
-            current ?: return
+            current
+        }
+
+        if (proc == null) {
+            updateStatus(NodeState.STOPPED, getString(R.string.node_status_stopped))
+            releaseWakeLock()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
         }
 
         try {
@@ -249,6 +332,7 @@ class NodeService : Service() {
                 }
             }
             updateStatus(NodeState.STOPPED, getString(R.string.node_status_stopped))
+            releaseWakeLock()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -262,13 +346,17 @@ class NodeService : Service() {
                 null
             }
             val wasStopRequested = stopRequested || status.state == NodeState.STOPPING
-            synchronized(this) {
+            synchronized(this@NodeService) {
                 if (process === startedProcess) {
                     process = null
                 }
             }
+            stopWatchdog()
             if (wasStopRequested) {
                 updateStatus(NodeState.STOPPED, getString(R.string.node_status_stopped))
+                releaseWakeLock()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
             } else {
                 if (exitCode == 0) {
                     updateStatus(NodeState.STOPPED, getString(R.string.node_status_exited))
@@ -276,9 +364,100 @@ class NodeService : Service() {
                     val message = getString(R.string.node_status_exited_with_code, exitCode?.toString() ?: "?")
                     updateStatus(NodeState.ERROR, message)
                 }
+                maybeScheduleRestart("process-exit")
             }
+        }
+    }
+
+    private fun maybeScheduleRestart(reason: String) {
+        if (!prefs.getBoolean(PREF_WANT_RUNNING, false) || stopRequested) {
+            releaseWakeLock()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
+            return
+        }
+        if (!restartScheduled.compareAndSet(false, true)) return
+        appendServiceLog(AppPaths(this).logsDir, "watchdog: scheduling restart ($reason)")
+        updateStatus(NodeState.STARTING, getString(R.string.notification_watchdog_restart))
+        ensureForeground(getString(R.string.notification_watchdog_restart))
+        restartJob = serviceScope.launch {
+            delay(RESTART_DELAY_MS)
+            restartScheduled.set(false)
+            if (prefs.getBoolean(PREF_WANT_RUNNING, false) && !stopRequested) {
+                startNodeAsync()
+            }
+        }
+    }
+
+    private fun startWatchdog() {
+        watchdogJob?.cancel()
+        watchdogJob = serviceScope.launch {
+            while (isActive) {
+                delay(WATCHDOG_INTERVAL_MS)
+                if (stopRequested || !prefs.getBoolean(PREF_WANT_RUNNING, false)) continue
+                val proc = process
+                if (proc == null || !proc.isAlive) {
+                    appendServiceLog(AppPaths(this@NodeService).logsDir, "watchdog: process missing")
+                    maybeScheduleRestart("watchdog-missing-process")
+                    continue
+                }
+                val healthy = probeLocalServer(status.port)
+                if (healthy) {
+                    consecutiveHealthFailures = 0
+                    acquireWakeLock()
+                } else {
+                    consecutiveHealthFailures += 1
+                    appendServiceLog(
+                        AppPaths(this@NodeService).logsDir,
+                        "watchdog: health check failed ($consecutiveHealthFailures/$HEALTH_FAIL_THRESHOLD)"
+                    )
+                    if (consecutiveHealthFailures >= HEALTH_FAIL_THRESHOLD) {
+                        consecutiveHealthFailures = 0
+                        runCatching { proc.destroy() }
+                        maybeScheduleRestart("watchdog-unhealthy")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun stopWatchdog() {
+        watchdogJob?.cancel()
+        watchdogJob = null
+        consecutiveHealthFailures = 0
+    }
+
+    private fun probeLocalServer(port: Int): Boolean {
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", port), 800)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun acquireWakeLock() {
+        val pm = getSystemService(PowerManager::class.java) ?: return
+        val existing = wakeLock
+        if (existing?.isHeld == true) {
+            existing.acquire(10 * 60 * 1000L)
+            return
+        }
+        val lock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TavernPocket:NodeService").apply {
+            setReferenceCounted(false)
+            acquire(10 * 60 * 1000L)
+        }
+        wakeLock = lock
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+        } catch (_: Exception) {
+        } finally {
+            wakeLock = null
         }
     }
 
@@ -330,7 +509,7 @@ class NodeService : Service() {
             listener.onStatus(newStatus)
         }
         val manager = NotificationManagerCompat.from(this)
-        if (newStatus.state == NodeState.STOPPED) {
+        if (newStatus.state == NodeState.STOPPED && !prefs.getBoolean(PREF_WANT_RUNNING, false)) {
             manager.cancel(NOTIFICATION_ID)
         } else {
             manager.notify(
@@ -395,5 +574,4 @@ class NodeService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(channel)
     }
-
 }

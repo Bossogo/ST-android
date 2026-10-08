@@ -36,6 +36,9 @@ export NPM_CONFIG_CACHE="${npm_cache_dir}"
 mkdir -p "${npm_cache_dir}"
 npm ci --omit=dev --ignore-scripts
 
+# Clean up half-installed extension folders after failed installs (upstream issues #12/#13/#20).
+python3 "${SCRIPT_DIR}/patch_st_extension_cleanup.py" "${STAGE_DIR}/src/endpoints/extensions.js"
+
 "${SCRIPT_DIR}/audit_no_native_addons.sh" "${STAGE_DIR}"
 
 cd "${ROOT_DIR}"

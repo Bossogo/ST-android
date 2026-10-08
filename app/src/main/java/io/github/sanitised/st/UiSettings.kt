@@ -19,6 +19,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -43,6 +44,7 @@ fun SettingsScreen(
     onThemeModeChanged: (ThemeMode) -> Unit,
     isBatteryUnrestricted: Boolean,
     onOpenBatterySettings: () -> Unit,
+    onOpenOemGuide: () -> Unit,
     channel: UpdateChannel,
     onChannelChanged: (UpdateChannel) -> Unit,
     onCheckNow: () -> Unit,
@@ -146,6 +148,13 @@ fun SettingsScreen(
                             stringResource(R.string.settings_battery_button_enable)
                         }
                     )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = onOpenOemGuide,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = stringResource(R.string.oem_keep_alive_open_guide))
                 }
                 Spacer(modifier = Modifier.height(24.dp))
                 HorizontalDivider()
@@ -380,6 +389,7 @@ private fun SettingsScreenPreview() {
         onThemeModeChanged = {},
         isBatteryUnrestricted = false,
         onOpenBatterySettings = {},
+        onOpenOemGuide = {},
         channel = UpdateChannel.RELEASE,
         onChannelChanged = {},
         onCheckNow = {},

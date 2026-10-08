@@ -3,9 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val fallbackVersionName = "0.5.0"
+val fallbackVersionName = "0.5.0-pocket.1"
 
 android {
+    // Keep the upstream Java/Kotlin package for AGPL attribution; applicationId is the install identity.
     namespace = "io.github.sanitised.st"
     compileSdk = 36
 
@@ -25,7 +26,7 @@ android {
         && !releaseKeyAlias.isNullOrBlank()
 
     defaultConfig {
-        applicationId = "io.github.sanitised.st"
+        applicationId = "com.bossogo.tavernpocket"
         minSdk = 26
         targetSdk = 36
 
@@ -72,12 +73,16 @@ android {
         debug {
             versionNameSuffix = "-dev"
             applicationIdSuffix = ".dev"
-            resValue("string", "app_name", "ST dev")
+            resValue("string", "app_name", "Tavern Pocket Dev")
         }
         release {
             isMinifyEnabled = false
             if (releaseSigningAvailable) {
                 signingConfig = signingConfigs.getByName("release")
+            } else {
+                // Fork CI / local builds without upstream signing secrets: use a generated debug keystore
+                // so the APK is still installable. Override with RELEASE_* env vars for real releases.
+                signingConfig = signingConfigs.getByName("debug")
             }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

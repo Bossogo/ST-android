@@ -57,6 +57,10 @@ fun LegalScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(text = stringResource(R.string.legal_links_title), style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = { onOpenUrl("https://github.com/Bossogo/ST-android") }) {
+                    Text(text = stringResource(R.string.legal_link_fork))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = { onOpenUrl("https://github.com/Sanitised/ST-android") }) {
                     Text(text = stringResource(R.string.legal_link_st_android))
                 }
